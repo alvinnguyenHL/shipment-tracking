@@ -56,7 +56,7 @@ class FedexProvider implements ProviderInterface
         $this->password = $password;
         $this->accountNumber = $accountNumber;
         $this->meterNumber = $meterNumber;
-        $this->url = $url ?: 'https://gateway.fedex.com/xml';
+        $this->url = $url ?: 'https://ws.fedex.com:443/web-services';
         $this->httpClient = $httpClient ?: new Client();
     }
 
@@ -65,13 +65,12 @@ class FedexProvider implements ProviderInterface
         try {
             $response = $this->httpClient->post(
                 $this->url,
-                array(),
+                array('Content-Type' => 'text/xml'),
                 $this->createRequestXML($trackingNumber)
             )->send();
         } catch (HttpException $e) {
             throw Exception::createFromHttpException($e);
         }
-
         return $this->parseTrackReply($response->getBody(true));
     }
 
@@ -119,13 +118,19 @@ XML;
         $requestXml->SelectionDetails->PackageIdentifier->Value = $trackingNumber;
         $requestXml->ProcessingOptions = 'INCLUDE_DETAILED_SCANS';
 
-        return $requestXml->asXML();
+        $requestBody = $requestXml->asXML();
+        $envelopeHeader = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:v9="http://fedex.com/ws/track/v9"> <soapenv:Body>';
+        $envelopeFooter = '</soapenv:Body> </soapenv:Envelope>';
+        $requestSoapXml = str_replace("<?xml version=\"1.0\"?>", "", $envelopeHeader . $requestBody . $envelopeFooter);
+        
+        return $requestSoapXml;
     }
 
     private function parseTrackReply($xml)
     {
         try {
-            $trackReplyXml = new \SimpleXMLElement($xml);
+            $cleanXML = str_ireplace(['SOAP-ENV:', 'SOAP:'], '', $xml);
+            $trackReplyXml = new \SimpleXMLElement($cleanXML);
         } catch (\Exception $e) {
             throw Exception::createFromSimpleXMLException($e);
         }
